@@ -394,9 +394,20 @@ static char *tree_resolve_hardlinks(dump_info *info)
 		free(fixup->target_path);
 		free(fixup);
 
-		fixup = next;
+		fixup = info->hardlink_fixups = next;
 	}
 	return NULL;
+}
+
+static void tree_destroy(dump_info *info)
+{
+	if (info->root)
+		lcfs_node_unref(info->root);
+	hardlink_fixup *fixup = info->hardlink_fixups;
+	while (fixup != NULL) {
+		free(fixup->target_path);
+		free(fixup);
+	}
 }
 
 static char *tree_from_dump_line(dump_info *info, const char *line,
@@ -683,6 +694,7 @@ static struct lcfs_node_s *tree_from_dump(FILE *input, char **out_err)
 					&info, line, line_len, strict_mode);
 				if (err != NULL) {
 					*out_err = err;
+					tree_destroy(&info);
 					buffer_free(&buf);
 					return NULL;
 				}
@@ -700,11 +712,13 @@ static struct lcfs_node_s *tree_from_dump(FILE *input, char **out_err)
 		char *err = tree_from_dump_line(&info, buf.buf, buf.size, strict_mode);
 		if (err != NULL) {
 			*out_err = err;
+			tree_destroy(&info);
 			buffer_free(&buf);
 			return NULL;
 		}
 	} else if (buf.size > 0) {
 		*out_err = make_error("Missing trailing newline");
+		tree_destroy(&info);
 		return NULL;
 	}
 
@@ -714,6 +728,7 @@ static struct lcfs_node_s *tree_from_dump(FILE *input, char **out_err)
 	char *err = tree_resolve_hardlinks(&info);
 	if (err) {
 		*out_err = err;
+		tree_destroy(&info);
 		return NULL;
 	}
 
@@ -792,7 +807,7 @@ int main(int argc, char **argv)
 		LLVMFuzzerTestOneInput((void *)buf, len);
 		return 0;
 	}
-	extern void HF_ITER(uint8_t * *buf, size_t * len);
+	extern void HF_ITER(uint8_t **buf, size_t *len);
 	for (;;) {
 		size_t len;
 		uint8_t *buf;
