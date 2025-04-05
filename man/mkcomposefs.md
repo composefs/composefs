@@ -1,4 +1,4 @@
-% mkcomposefs(1) composefs | User Commands
+% mkcomposefs 1 "" composefs "User Commands"
 
 # NAME
 

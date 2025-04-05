@@ -1,4 +1,4 @@
-% composefs-info(1) composefs | User Commands
+% composefs-info 1 "" composefs "User Commands"
 
 # NAME
 

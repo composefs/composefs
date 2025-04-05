@@ -1,4 +1,4 @@
-% mount.composefs(1) composefs | User Commands
+% mount.composefs 8 "" composefs "User Commands"
 
 # NAME
 
