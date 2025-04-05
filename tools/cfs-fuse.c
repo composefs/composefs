@@ -51,8 +51,8 @@ uint32_t erofs_build_time_nsec;
 int basedir_fd;
 
 struct cfs_data {
-	const char *source;
-	const char *basedir;
+	char *source;
+	char *basedir;
 	bool noacl;
 };
 
@@ -1116,13 +1116,22 @@ static const struct fuse_lowlevel_ops cfs_oper = {
 	.lseek = cfs_lseek,
 };
 
+static void cleanup_cfs_data(struct cfs_data *data)
+{
+	free(data->source);
+	free(data->basedir);
+}
+
 int main(int argc, char *argv[])
 {
-	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	__attribute__((cleanup(fuse_opt_free_args))) struct fuse_args args =
+		FUSE_ARGS_INIT(argc, argv);
 	struct fuse_session *se;
 	struct fuse_cmdline_opts opts;
 	struct fuse_loop_config config;
-	struct cfs_data data = { .source = NULL };
+	__attribute__((cleanup(cleanup_cfs_data))) struct cfs_data data = {
+		.source = NULL, .basedir = NULL
+	};
 	int fd;
 	struct stat s;
 	int r;
@@ -1130,8 +1139,10 @@ int main(int argc, char *argv[])
 
 	int ret = -1;
 
-	if (fuse_parse_cmdline(&args, &opts) != 0)
-		return 1;
+	if (fuse_parse_cmdline(&args, &opts) != 0) {
+		ret = 1;
+		goto err_out1;
+	}
 	if (opts.show_help) {
 		printf("usage: %s [options] <file> <mountpoint>\n\n", argv[0]);
 		fuse_cmdline_help();
@@ -1156,8 +1167,10 @@ int main(int argc, char *argv[])
 	fuse_opt_add_arg(&args, "-o");
 	fuse_opt_add_arg(&args, "ro,default_permissions");
 
-	if (fuse_opt_parse(&args, &data, cfs_opts, NULL) == -1)
-		return 1;
+	if (fuse_opt_parse(&args, &data, cfs_opts, NULL) == -1) {
+		ret = 1;
+		goto err_out1;
+	}
 
 	fd = open(data.source, O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
@@ -1239,7 +1252,6 @@ err_out2:
 	fuse_session_destroy(se);
 err_out1:
 	free(opts.mountpoint);
-	fuse_opt_free_args(&args);
 
 	return ret ? 1 : 0;
 }
