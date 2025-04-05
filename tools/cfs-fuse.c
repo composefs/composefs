@@ -741,7 +741,8 @@ static void cfs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t max_size)
 	uint32_t raw_blkaddr;
 	size_t isize;
 	size_t xattr_size;
-	char buf[max_size];
+	// This must be nonzero to avoid undefined behavior
+	char buf[max_size > 0 ? max_size : 1];
 	size_t buf_size;
 	uint8_t shared_count;
 	const struct erofs_xattr_ibody_header *xattr_header;
