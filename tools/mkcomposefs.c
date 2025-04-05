@@ -786,6 +786,8 @@ static int LLVMFuzzerTestOneInput(uint8_t *buf, size_t len)
 	return 0;
 }
 
+extern void HF_ITER(uint8_t **buf, size_t *len);
+
 int main(int argc, char **argv)
 {
 	if (argc > 1) {
@@ -807,7 +809,6 @@ int main(int argc, char **argv)
 		LLVMFuzzerTestOneInput((void *)buf, len);
 		return 0;
 	}
-	extern void HF_ITER(uint8_t **buf, size_t *len);
 	for (;;) {
 		size_t len;
 		uint8_t *buf;
