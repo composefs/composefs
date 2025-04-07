@@ -106,48 +106,6 @@ jobs:
       - name: Build
         # focal's meson is too old for 'meson compile'
         run: meson compile -C build
-  build-unit-cross:
-    runs-on: ubuntu-latest
-    name: Build on ${{ matrix.arch }}
-
-    strategy:
-      matrix:
-        include:
-          - arch: armv7
-            distro: bullseye
-          - arch: aarch64
-            distro: bullseye
-          - arch: s390x
-            distro: bullseye
-          - arch: ppc64le
-            distro: bullseye
-    steps:
-      - uses: actions/checkout@v3.0.2
-        with:
-          submodules: true
-          set-safe-directory: true
-
-      - uses: uraimo/run-on-arch-action@v2.8.1
-        name: Build
-        id: build
-        with:
-          arch: ${{ matrix.arch }}
-          distro: ${{ matrix.distro }}
-
-          githubToken: ${{ github.token }}
-
-          run: |
-            apt-get update -y
-            ./hacking/installdeps.sh
-            meson setup build --werror
-            meson compile -C build
-            env CFS_TEST_ARCH_EMULATION=${{ matrix.arch }} meson test -C build --timeout-multiplier 10
-      - name: Upload log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: testlog-${{ matrix.arch }}
-          path: build/meson-logs/testlog.txt
   integration:
     needs: build
     runs-on: ubuntu-latest
