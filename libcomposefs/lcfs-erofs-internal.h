@@ -14,7 +14,10 @@
 
 // For now we only support a single block for non-inline files.
 // This restriction could be lifted in the future.
+#define LCFS_MAX_CHUNK_BITS (EROFS_CHUNK_FORMAT_BLKBITS_MASK + EROFS_BLKSIZ_BITS)
+#define LCFS_MAX_CHUNK_SIZE (1ull << LCFS_MAX_CHUNK_BITS)
 #define LCFS_MAX_NONINLINE_CHUNKS 1024
+#define LCFS_MAX_NONINLINE_FILESIZE (LCFS_MAX_NONINLINE_CHUNKS * LCFS_MAX_CHUNK_SIZE)
 
 typedef union {
 	__le16 i_format;
@@ -123,8 +126,5 @@ static inline char *erofs_get_xattr_name(uint8_t index, const char *name,
 
 	return res;
 }
-
-void erofs_compute_chunking(uint64_t file_size, uint32_t *chunkbits,
-			    uint32_t *chunk_count);
 
 #endif
