@@ -401,13 +401,18 @@ static char *tree_resolve_hardlinks(dump_info *info)
 
 static void tree_destroy(dump_info *info)
 {
-	if (info->root)
+	if (info->root) {
 		lcfs_node_unref(info->root);
+		info->root = NULL;
+	}
 	hardlink_fixup *fixup = info->hardlink_fixups;
 	while (fixup != NULL) {
+		hardlink_fixup *next = fixup->next;
 		free(fixup->target_path);
 		free(fixup);
+		fixup = next;
 	}
+	info->hardlink_fixups = NULL;
 }
 
 static char *tree_from_dump_line(dump_info *info, const char *line,
