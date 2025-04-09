@@ -1074,8 +1074,11 @@ static int copy_file_with_dirs_if_needed(const char *src, const char *dst_base,
 		return ret;
 
 	dfd = mkostemp(tmppath, O_CLOEXEC);
-	if (dfd == -1)
+	if (dfd == -1) {
+		// Avoid a spurious extra unlink() from the cleanup
+		free(steal_pointer(&tmppath));
 		return -1;
+	}
 
 	sfd = open(src, O_CLOEXEC | O_RDONLY);
 	if (sfd == -1) {
