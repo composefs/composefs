@@ -724,6 +724,7 @@ static struct lcfs_node_s *tree_from_dump(FILE *input, char **out_err)
 	} else if (buf.size > 0) {
 		*out_err = make_error("Missing trailing newline");
 		tree_destroy(&info);
+		buffer_free(&buf);
 		return NULL;
 	}
 
