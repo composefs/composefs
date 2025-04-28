@@ -159,6 +159,8 @@ static char *node_build_path(struct lcfs_node_s *node)
 	}
 
 	char *path = malloc(pathlen + 1);
+	if (path == NULL)
+		oom();
 	char *p = path + pathlen;
 	*p = 0;
 
