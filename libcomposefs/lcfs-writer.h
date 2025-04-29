@@ -37,10 +37,11 @@ enum lcfs_flags_t {
 	LCFS_FLAGS_MASK = 0,
 };
 
-#define LCFS_VERSION_MAX 1
+#define LCFS_VERSION_MAX 2
 /* Version history:
  * 0 - Initial version
  * 1 - Mark xwhitouts using the opaque=x format (1.0.3)
+ * 2 - https://github.com/containers/composefs/issues/198
  */
 
 /* Default value used by tooling, update with care */
