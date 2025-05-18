@@ -1690,8 +1690,11 @@ int main(int argc, char **argv)
 		buildflag_copy |= LCFS_BUILD_NO_INLINE;
 
 		root = lcfs_build(AT_FDCWD, src_path, buildflag_copy, &failed_path);
-		if (root == NULL)
-			err(EXIT_FAILURE, "error accessing %s", failed_path);
+		if (root == NULL) {
+			// An allocation error in maybe_join_path() can cause
+			// failed_path to be set to NULL
+			err(EXIT_FAILURE, "error accessing %s", failed_path ?: "");
+		}
 
 		if (compute_digest(threads, root, src_path, buildflags) < 0)
 			err(EXIT_FAILURE, "error computing digest");
