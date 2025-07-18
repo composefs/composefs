@@ -193,3 +193,6 @@ that could in theory be extracted to a helper package.
 
 We have a dedicated [CONTRIBUTING](CONTRIBUTING.md) document.
 
+## Copyright
+
+Copyright © contributors to composefs, established as composefs a Series of LF Projects, LLC.
