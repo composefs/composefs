@@ -1213,11 +1213,7 @@ int lcfs_node_validate(struct lcfs_node_s *node)
 		// For now we cap max file size such that our "stub"
 		// fits within a single block.
 		if (node->inode.st_size > 0 && node->content == NULL) {
-			uint32_t chunkbits;
-			uint32_t chunk_count;
-			erofs_compute_chunking(node->inode.st_size, &chunkbits,
-					       &chunk_count);
-			if (chunk_count > LCFS_MAX_NONINLINE_CHUNKS) {
+			if (node->inode.st_size > LCFS_MAX_NONINLINE_FILESIZE) {
 				errno = EFBIG;
 				return -1;
 			}

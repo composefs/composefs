@@ -490,15 +490,20 @@ static uint32_t erofs_compute_chunk_bitsize(uint64_t file_size)
 // Determine how many "chunks" we'd need to represent a file of this
 // size using EROFS_INODE_CHUNK_BASED.
 // See https://erofs.docs.kernel.org/en/latest/core_ondisk.html
-void erofs_compute_chunking(uint64_t file_size, uint32_t *chunkbits,
-			    uint32_t *chunk_count)
+static void erofs_compute_chunking(struct lcfs_ctx_s *ctx,
+				   uint64_t file_size, uint32_t *chunkbits,
+				   uint32_t *chunk_count)
 {
-	*chunkbits = erofs_compute_chunk_bitsize(file_size);
+	if (ctx->options->version < 2) {
+		*chunkbits = erofs_compute_chunk_bitsize(file_size);
+	} else {
+		*chunkbits = EROFS_CHUNK_FORMAT_BLKBITS_MASK + EROFS_BLKSIZ_BITS;
+	}
 	uint64_t chunksize = 1ULL << *chunkbits;
 	*chunk_count = DIV_ROUND_UP(file_size, chunksize);
 }
 
-static void compute_erofs_inode_size(struct lcfs_node_s *node)
+static void compute_erofs_inode_size(struct lcfs_ctx_s *ctx, struct lcfs_node_s *node)
 {
 	int type = node->inode.st_mode & S_IFMT;
 	uint64_t file_size = node->inode.st_size;
@@ -522,7 +527,7 @@ static void compute_erofs_inode_size(struct lcfs_node_s *node)
 		} else {
 			uint32_t chunkbits;
 			uint32_t chunk_count;
-			erofs_compute_chunking(node->inode.st_size, &chunkbits,
+			erofs_compute_chunking(ctx, node->inode.st_size, &chunkbits,
 					       &chunk_count);
 			// Currently only support single blocks.
 			assert(chunk_count <= LCFS_MAX_NONINLINE_CHUNKS);
@@ -649,8 +654,9 @@ static int compute_erofs_inodes(struct lcfs_ctx_s *ctx)
 		size_t n_shared_xattrs, unshared_xattrs_size;
 		size_t inode_size, xattr_size;
 
-		compute_erofs_inode_size(node);
-		node->erofs_compact = lcfs_fits_in_erofs_compact(ctx, node);
+		compute_erofs_inode_size(ctx, node);
+		node->erofs_compact = ctx->options->version < 2 &&
+			lcfs_fits_in_erofs_compact(ctx, node);
 		inode_size = node->erofs_compact ?
 				     sizeof(struct erofs_inode_compact) :
 				     sizeof(struct erofs_inode_extended);
@@ -871,8 +877,8 @@ static int write_erofs_inode_data(struct lcfs_ctx_s *ctx, struct lcfs_node_s *no
 
 		if (size > 0 && node->content == NULL) {
 			uint32_t chunkbits;
-			erofs_compute_chunking(node->inode.st_size, &chunkbits,
-					       &chunk_count);
+			erofs_compute_chunking(ctx, node->inode.st_size, &chunkbits,
+						       &chunk_count);
 			assert(chunk_count <= LCFS_MAX_NONINLINE_CHUNKS);
 			datalayout = EROFS_INODE_CHUNK_BASED;
 			chunk_format = chunkbits - EROFS_BLKSIZ_BITS;
@@ -890,6 +896,8 @@ static int write_erofs_inode_data(struct lcfs_ctx_s *ctx, struct lcfs_node_s *no
 
 	format = datalayout << EROFS_I_DATALAYOUT_BIT | version << EROFS_I_VERSION_BIT;
 
+	uint32_t ino = ctx->options->version < 2 ? node->inode_num : node->erofs_nid;
+
 	if (node->erofs_compact) {
 		struct erofs_inode_compact i = { 0 };
 		i.i_format = lcfs_u16_to_file(format);
@@ -897,7 +905,7 @@ static int write_erofs_inode_data(struct lcfs_ctx_s *ctx, struct lcfs_node_s *no
 		i.i_mode = lcfs_u16_to_file((uint16_t)node->inode.st_mode);
 		i.i_nlink = lcfs_u16_to_file((uint16_t)node->inode.st_nlink);
 		i.i_size = lcfs_u32_to_file((uint32_t)size);
-		i.i_ino = lcfs_u32_to_file(node->inode_num);
+		i.i_ino = lcfs_u32_to_file(ino);
 		i.i_uid = lcfs_u16_to_file((uint16_t)node->inode.st_uid);
 		i.i_gid = lcfs_u16_to_file((uint16_t)node->inode.st_gid);
 
@@ -934,7 +942,7 @@ static int write_erofs_inode_data(struct lcfs_ctx_s *ctx, struct lcfs_node_s *no
 		i.i_mode = lcfs_u16_to_file((uint16_t)node->inode.st_mode);
 		i.i_nlink = lcfs_u32_to_file(node->inode.st_nlink);
 		i.i_size = lcfs_u64_to_file(size);
-		i.i_ino = lcfs_u32_to_file(node->inode_num);
+		i.i_ino = lcfs_u32_to_file(ino);
 		i.i_uid = lcfs_u32_to_file(node->inode.st_uid);
 		i.i_gid = lcfs_u32_to_file(node->inode.st_gid);
 		i.i_mtime = lcfs_u64_to_file((uint64_t)node->inode.st_mtim_sec);
@@ -984,9 +992,10 @@ static int write_erofs_inode_data(struct lcfs_ctx_s *ctx, struct lcfs_node_s *no
 		for (size_t i = 0; i < node->n_xattrs; i++) {
 			struct lcfs_xattr_s *xattr = &node->xattrs[i];
 			if (xattr->erofs_shared_xattr_offset >= 0) {
-				uint64_t offset =
-					ctx_erofs->inodes_end % EROFS_BLKSIZ +
-					xattr->erofs_shared_xattr_offset;
+				uint64_t offset = ctx_erofs->inodes_end;
+				if (ctx->options->version < 2)
+					offset %= EROFS_BLKSIZ;
+				offset += xattr->erofs_shared_xattr_offset;
 				uint32_t v = lcfs_u32_to_file(
 					(uint32_t)(offset / sizeof(uint32_t)));
 				ret = lcfs_write(ctx, &v, sizeof(v));
@@ -1371,13 +1380,15 @@ static int rewrite_tree_for_erofs(struct lcfs_ctx_s *ctx, struct lcfs_node_s *ro
 	if (res < 0)
 		return res;
 
-	res = set_overlay_opaque(root);
-	if (res < 0)
-		return res;
+        if (ctx->options->version < 2) {
+		res = set_overlay_opaque(root);
+		if (res < 0)
+			return res;
 
-	res = add_overlay_whiteouts(root);
-	if (res < 0)
-		return res;
+		res = add_overlay_whiteouts(root);
+		if (res < 0)
+			return res;
+	}
 
 	return 0;
 }
@@ -1441,18 +1452,20 @@ int lcfs_write_erofs_to(struct lcfs_ctx_s *ctx)
 					    EROFS_FEATURE_COMPAT_XATTR_FILTER));
 	superblock.inos = lcfs_u64_to_file(ctx->num_inodes);
 
-	superblock.build_time = lcfs_u64_to_file((uint64_t)ctx->min_mtim_sec);
-	superblock.build_time_nsec = lcfs_u32_to_file(ctx->min_mtim_nsec);
+	if (ctx->options->version < 2) {
+		superblock.build_time = lcfs_u64_to_file((uint64_t)ctx->min_mtim_sec);
+		superblock.build_time_nsec = lcfs_u32_to_file(ctx->min_mtim_nsec);
 
-	/* metadata is stored directly after superblock */
-	superblock.meta_blkaddr = lcfs_u32_to_file(
-		(uint32_t)((EROFS_SUPER_OFFSET + sizeof(superblock)) / EROFS_BLKSIZ));
+		/* metadata is stored directly after superblock */
+		superblock.meta_blkaddr = lcfs_u32_to_file(
+			(uint32_t)((EROFS_SUPER_OFFSET + sizeof(superblock)) / EROFS_BLKSIZ));
+
+		/* shared xattrs is directly after metadata */
+		superblock.xattr_blkaddr = lcfs_u32_to_file((uint32_t)(ctx_erofs->inodes_end / EROFS_BLKSIZ));
+	}
+
 	assert(root->erofs_nid < UINT16_MAX);
 	superblock.root_nid = lcfs_u16_to_file((uint16_t)root->erofs_nid);
-
-	/* shared xattrs is directly after metadata */
-	superblock.xattr_blkaddr =
-		lcfs_u32_to_file((uint32_t)(ctx_erofs->inodes_end / EROFS_BLKSIZ));
 
 	data_block_start =
 		round_up(ctx_erofs->inodes_end + ctx_erofs->shared_xattr_size,
