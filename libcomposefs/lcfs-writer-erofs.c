@@ -1766,7 +1766,17 @@ static struct lcfs_node_s *lcfs_build_node_from_image(struct lcfs_image_data *da
 	}
 
 	if (type == S_IFCHR && node->inode.st_rdev == 0) {
-		errno = ENOTSUP; /* Use this to signal that we found a whiteout */
+		/* A whiteout (chardev rdev=0) with nlink>1 is semantically
+		 * invalid: a whiteout represents the absence of a file, so it
+		 * cannot be hard-linked.  Reject the image explicitly rather
+		 * than silently skipping what would be a dangling alias. */
+		if (node->inode.st_nlink > 1) {
+			free(hash_remove(data->node_hash, &ht_entry));
+			errno = EINVAL;
+			return NULL;
+		}
+		free(hash_remove(data->node_hash, &ht_entry));
+		errno = ENOTSUP; /* Signal to caller: skip this whiteout entry */
 		return NULL;
 	}
 
