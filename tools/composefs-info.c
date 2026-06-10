@@ -194,11 +194,18 @@ static void dump_node(struct lcfs_node_s *node, char *path)
 	const char *payload = lcfs_node_get_payload(target);
 	const uint8_t *digest = lcfs_node_get_fsverity_digest(target);
 	const uint8_t *content = lcfs_node_get_content(target);
-	uint64_t size = lcfs_node_get_size(target);
+	uint32_t target_mode = lcfs_node_get_mode(target);
+	/* composefs-dump(5): "SIZE: The size of the file. This is ignored
+	 * for directories." Write 0 for directories so the dump output is
+	 * filesystem-independent (the on-disk directory size is an EROFS
+	 * implementation detail, not a meaningful filesystem property). */
+	uint64_t size = (target_mode & S_IFMT) == S_IFDIR
+				? 0
+				: lcfs_node_get_size(target);
 
 	print_escaped(*path == 0 ? "/" : path, -1, ESCAPE_STANDARD);
 	printf(" %" PRIu64 " %s%o %u %u %u %" PRIu64 " %" PRIi64 ".%u ", size,
-	       hardlink_path != NULL ? "@" : "", lcfs_node_get_mode(target),
+	       hardlink_path != NULL ? "@" : "", target_mode,
 	       lcfs_node_get_nlink(target), lcfs_node_get_uid(target),
 	       lcfs_node_get_gid(target), lcfs_node_get_rdev64(target),
 	       (int64_t)mtime.tv_sec, (unsigned int)mtime.tv_nsec);
