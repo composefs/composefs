@@ -1,9 +1,18 @@
 name: Test
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
 
 permissions:
   actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   clang-format:
@@ -138,3 +147,21 @@ jobs:
         run: meson setup build --werror
       - name: Run make distcheck
         run: meson dist -C build
+
+  # Sentinel job for required checks - configure this job name in repository settings.
+  # Accepts 'skipped' as success so that merge_group-only jobs don't block PRs.
+  required-checks:
+    if: always()
+    needs: [clang-format, build, build-noasan, build-baseline, build-latest-clang, integration, distcheck]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: |
+          FAILED=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result | IN("success","skipped") | not) | .key')
+          if [ -n "$FAILED" ]; then
+            echo "The following jobs did not succeed: $FAILED"
+            exit 1
+          fi
+          echo "All jobs succeeded or were skipped."
