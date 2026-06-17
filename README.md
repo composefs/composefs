@@ -1,4 +1,6 @@
 # composefs: The reliability of disk images, the flexibility of files
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fcomposefs%2Fcomposefs.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fcomposefs%2Fcomposefs?ref=badge_shield)
+
 
 The composefs project combines several underlying Linux features
 to provide a very flexible mechanism to support read-only
@@ -196,3 +198,7 @@ We have a dedicated [CONTRIBUTING](CONTRIBUTING.md) document.
 ## Copyright
 
 Copyright © contributors to composefs, established as composefs a Series of LF Projects, LLC.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fcomposefs%2Fcomposefs.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fcomposefs%2Fcomposefs?ref=badge_large)
