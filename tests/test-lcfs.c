@@ -11,6 +11,10 @@
 #include <errno.h>
 #include <endian.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <limits.h>
 
 static inline void lcfs_node_unrefp(struct lcfs_node_s **nodep)
 {
@@ -227,6 +231,150 @@ static void test_hardlinked_whiteout_load(void)
 	assert(errsv == EINVAL);
 }
 
+static void create_regular_file(const char *path)
+{
+	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	assert(fd >= 0);
+	assert(write(fd, "hello", 5) == 5);
+	close(fd);
+}
+
+static void create_symlink(const char *path)
+{
+	assert(symlink("target-does-not-need-to-exist", path) == 0);
+}
+
+// Verifies that lcfs_build() only detects hardlinked files of a given type
+// when scanning a directory tree if LCFS_BUILD_TRACK_HARDLINKS is passed; by
+// default (matching historical behavior) every path gets its own
+// independent inode with nlink == 1. Parameterized over the node type being
+// hardlinked, since any non-directory type (regular files, symlinks, FIFOs,
+// device nodes, sockets) can be hardlinked, not just regular files.
+static void test_build_hardlinks_for(void (*create)(const char *path))
+{
+	char tmpdir[] = "/tmp/test-build-hardlinks.XXXXXX";
+	assert(mkdtemp(tmpdir) != NULL);
+
+	char path1[PATH_MAX], path2[PATH_MAX];
+	snprintf(path1, sizeof(path1), "%s/file1", tmpdir);
+	snprintf(path2, sizeof(path2), "%s/file2", tmpdir);
+
+	create(path1);
+
+	assert(link(path1, path2) == 0);
+
+	int dirfd = open(tmpdir, O_RDONLY | O_DIRECTORY);
+	assert(dirfd >= 0);
+
+	/* Without LCFS_BUILD_TRACK_HARDLINKS: today's default behavior is
+	 * that every path becomes an independent inode with nlink == 1. */
+	{
+		char *failed_path = NULL;
+		cleanup_node struct lcfs_node_s *root =
+			lcfs_build(dirfd, ".", 0, &failed_path);
+		assert(root != NULL);
+
+		struct lcfs_node_s *n1 = lcfs_node_lookup_child(root, "file1");
+		struct lcfs_node_s *n2 = lcfs_node_lookup_child(root, "file2");
+		assert(n1 != NULL);
+		assert(n2 != NULL);
+		assert(lcfs_node_get_hardlink_target(n1) == NULL);
+		assert(lcfs_node_get_hardlink_target(n2) == NULL);
+		assert(lcfs_node_get_nlink(n1) == 1);
+		assert(lcfs_node_get_nlink(n2) == 1);
+
+		assert(testwrite_node(root) == 0);
+	}
+
+	/* With LCFS_BUILD_TRACK_HARDLINKS: one of the two paths becomes a
+	 * hardlink to the other, and the target's nlink is bumped to 2. */
+	{
+		char *failed_path = NULL;
+		cleanup_node struct lcfs_node_s *root = lcfs_build(
+			dirfd, ".", LCFS_BUILD_TRACK_HARDLINKS, &failed_path);
+		assert(root != NULL);
+
+		struct lcfs_node_s *n1 = lcfs_node_lookup_child(root, "file1");
+		struct lcfs_node_s *n2 = lcfs_node_lookup_child(root, "file2");
+		assert(n1 != NULL);
+		assert(n2 != NULL);
+
+		/* Whichever of the two is visited first by readdir() becomes
+		 * the canonical inode; the other becomes a hardlink to it. */
+		struct lcfs_node_s *target1 = lcfs_node_get_hardlink_target(n1);
+		struct lcfs_node_s *target2 = lcfs_node_get_hardlink_target(n2);
+		assert((target1 == NULL) != (target2 == NULL));
+
+		struct lcfs_node_s *link_node = target1 != NULL ? n1 : n2;
+		struct lcfs_node_s *target_node = target1 != NULL ? n2 : n1;
+		assert(lcfs_node_get_hardlink_target(link_node) == target_node);
+		assert(lcfs_node_get_nlink(target_node) == 2);
+
+		assert(testwrite_node(root) == 0);
+	}
+
+	close(dirfd);
+	unlink(path1);
+	unlink(path2);
+	rmdir(tmpdir);
+}
+
+// A chardev with rdev=0 is how composefs represents an overlayfs whiteout;
+// nlink>1 on one is semantically invalid (a whiteout marks the absence of a
+// file) and rejected outright by the EROFS writer. Verify that
+// LCFS_BUILD_TRACK_HARDLINKS deliberately leaves such inodes untracked, so
+// two hardlinked rdev=0 chardevs on disk still build (each as its own
+// independent inode) instead of failing.
+static void test_build_hardlinks_whiteout_exception(void)
+{
+	char tmpdir[] = "/tmp/test-build-hardlinks.XXXXXX";
+	assert(mkdtemp(tmpdir) != NULL);
+
+	char path1[PATH_MAX], path2[PATH_MAX];
+	snprintf(path1, sizeof(path1), "%s/wh1", tmpdir);
+	snprintf(path2, sizeof(path2), "%s/wh2", tmpdir);
+
+	if (mknod(path1, S_IFCHR | 0644, makedev(0, 0)) < 0) {
+		/* Creating device nodes may be disallowed in some sandboxed
+		 * or unprivileged test environments; skip rather than fail. */
+		assert(errno == EPERM || errno == EACCES);
+		rmdir(tmpdir);
+		return;
+	}
+	assert(link(path1, path2) == 0);
+
+	int dirfd = open(tmpdir, O_RDONLY | O_DIRECTORY);
+	assert(dirfd >= 0);
+
+	char *failed_path = NULL;
+	cleanup_node struct lcfs_node_s *root =
+		lcfs_build(dirfd, ".", LCFS_BUILD_TRACK_HARDLINKS, &failed_path);
+	assert(root != NULL);
+
+	struct lcfs_node_s *n1 = lcfs_node_lookup_child(root, "wh1");
+	struct lcfs_node_s *n2 = lcfs_node_lookup_child(root, "wh2");
+	assert(n1 != NULL);
+	assert(n2 != NULL);
+	assert(lcfs_node_get_hardlink_target(n1) == NULL);
+	assert(lcfs_node_get_hardlink_target(n2) == NULL);
+	assert(lcfs_node_get_nlink(n1) == 1);
+	assert(lcfs_node_get_nlink(n2) == 1);
+
+	assert(testwrite_node(root) == 0);
+
+	close(dirfd);
+	unlink(path1);
+	unlink(path2);
+	rmdir(tmpdir);
+}
+
+static void test_build_hardlinks(void)
+{
+	test_build_hardlinks_for(create_regular_file);
+	test_build_hardlinks_for(create_symlink);
+	test_build_hardlinks_whiteout_exception();
+}
+
 // Verifies that lcfs_fd_measure_fsverity fails on a fd without fsverity
 static void test_no_verity(void)
 {
@@ -279,4 +427,5 @@ int main(int argc, char **argv)
 	test_xattr_doubleadd();
 	test_hardlinked_whiteout_load();
 	test_fsverity_empty_file();
+	test_build_hardlinks();
 }

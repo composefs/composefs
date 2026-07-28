@@ -59,6 +59,7 @@ static __attribute__((format(printf, 1, 2))) char *make_error(const char *fmt, .
 #define OPT_MIN_VERSION 114
 #define OPT_THREADS 115
 #define OPT_MAX_VERSION 116
+#define OPT_HARDLINKS 117
 
 static size_t split_at(const char **start, size_t *length, char split_char,
 		       bool *partial)
@@ -1463,6 +1464,10 @@ static void usage(const char *argv0)
 		"  --skip-devices        Don't store device nodes\n"
 		"  --skip-xattrs         Don't store file xattrs\n"
 		"  --user-xattrs         Only store user.* xattrs\n"
+		"  --hardlinks           Detect and deduplicate hard-linked files when building\n"
+		"                        from a directory (matches composefs-rs's --hardlinks;\n"
+		"                        default is to treat every file as an independent\n"
+		"                        inode for compatibility)\n"
 		"  --print-digest        Print the digest of the image\n"
 		"  --print-digest-only   Print the digest of the image, don't write image\n"
 		"  --from-file           The source is a dump file, not a directory\n"
@@ -1488,6 +1493,7 @@ int main(int argc, char **argv)
 		  .has_arg = no_argument,
 		  .flag = NULL,
 		  .val = OPT_SKIP_DEVICES },
+		{ .name = "hardlinks", .has_arg = no_argument, .flag = NULL, .val = OPT_HARDLINKS },
 		{ .name = "use-epoch", .has_arg = no_argument, .flag = NULL, .val = OPT_USE_EPOCH },
 		{ .name = "digest-store",
 		  .has_arg = required_argument,
@@ -1556,6 +1562,9 @@ int main(int argc, char **argv)
 			break;
 		case OPT_SKIP_DEVICES:
 			buildflags |= LCFS_BUILD_SKIP_DEVICES;
+			break;
+		case OPT_HARDLINKS:
+			buildflags |= LCFS_BUILD_TRACK_HARDLINKS;
 			break;
 		case OPT_DIGEST_STORE:
 			digest_store_path = optarg;
