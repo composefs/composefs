@@ -432,8 +432,6 @@ void lcfs_fsverity_context_get_digest(FsVerityContext *ctx,
 {
 	struct fsverity_descriptor descriptor;
 
-	lcfs_fsverity_context_flush_level(ctx, 0);
-
 	memset(&descriptor, 0, sizeof(descriptor));
 	descriptor.version = 1;
 	descriptor.hash_algorithm = 1;
@@ -441,8 +439,15 @@ void lcfs_fsverity_context_get_digest(FsVerityContext *ctx,
 	descriptor.salt_size = 0;
 	descriptor.data_size_le = htole64(ctx->file_size);
 
-	do_sha256(ctx, ctx->buffer[ctx->max_level], FSVERITY_BLOCK_SIZE,
-		  descriptor.root_hash);
+	/* An empty file has zero Merkle tree blocks, so per the fs-verity
+	 * on-disk format root_hash stays all-zero (as set by the memset
+	 * above). There is nothing to flush or hash in that case. */
+	if (ctx->file_size > 0) {
+		lcfs_fsverity_context_flush_level(ctx, 0);
+
+		do_sha256(ctx, ctx->buffer[ctx->max_level], FSVERITY_BLOCK_SIZE,
+			  descriptor.root_hash);
+	}
 
 	do_sha256(ctx, (uint8_t *)&descriptor, sizeof(descriptor), digest);
 }

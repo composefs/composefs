@@ -244,6 +244,29 @@ static void test_no_verity(void)
 	close(tmpfd);
 }
 
+// Regression test for https://github.com/composefs/composefs/issues/442.
+//
+// A zero-length file has no Merkle tree blocks, so the root_hash field
+// inside the fsverity_descriptor must be all-zero. The final digest
+// below is *not* that root_hash: it's SHA256(descriptor), i.e. what
+// lcfs_compute_fsverity_from_data() / `composefs-info measure-file`
+// actually returns, and what the kernel reports via `fsverity measure`
+// for a real empty file with fs-verity enabled.
+static void test_fsverity_empty_file(void)
+{
+	static const uint8_t expected[LCFS_DIGEST_SIZE] = {
+		0x3d, 0x24, 0x8c, 0xa5, 0x42, 0xa2, 0x4f, 0xc6,
+		0x2d, 0x1c, 0x43, 0xb9, 0x16, 0xea, 0xe5, 0x01,
+		0x68, 0x78, 0xe2, 0x53, 0x3c, 0x88, 0x23, 0x84,
+		0x80, 0xb2, 0x61, 0x28, 0xa1, 0xf1, 0xaf, 0x95,
+	};
+	uint8_t digest[LCFS_DIGEST_SIZE];
+
+	int r = lcfs_compute_fsverity_from_data(digest, NULL, 0);
+	assert(r == 0);
+	assert(memcmp(digest, expected, LCFS_DIGEST_SIZE) == 0);
+}
+
 int main(int argc, char **argv)
 {
 	(void)argc;
@@ -255,4 +278,5 @@ int main(int argc, char **argv)
 	test_xattr_addremove();
 	test_xattr_doubleadd();
 	test_hardlinked_whiteout_load();
+	test_fsverity_empty_file();
 }
