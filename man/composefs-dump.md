@@ -53,7 +53,8 @@ otherwise specified):
     line.
 
 **SIZE**
-:   The size of the file. This is ignored for directories.
+:   The size of the file. For directories this should be 0 (it is
+    ignored when reading).
 
 **MODE**
 :    The st_mode stat field the file in octal, which includes both the
@@ -105,9 +106,9 @@ After the fixed fields comes the xattrs, escaped and space-separated in the form
 # EXAMPLE
 
 ```
-/ 4096 40755 4 1000 1000 0 1695372970.944925700 - - - security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
-/a\x20dir\x20w\x20space 27 40755 2 1000 1000 0 1694598852.869646118 - - - security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
-/a-dir 45 40755 2 1000 1000 0 1674041780.601887980 - - - security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
+/ 0 40755 4 1000 1000 0 1695372970.944925700 - - - security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
+/a\x20dir\x20w\x20space 0 40755 2 1000 1000 0 1694598852.869646118 - - - security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
+/a-dir 0 40755 2 1000 1000 0 1674041780.601887980 - - - security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
 /a-dir/a-file 259 100644 1 1000 1000 0 1695368732.385062094 35/d02f81325122d77ec1d11baba655bc9bf8a891ab26119a41c50fa03ddfb408 - 35d02f81325122d77ec1d11baba655bc9bf8a891ab26119a41c50fa03ddfb408 security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
 /a-hardlink 259 @100644 1 1000 1000 0 1695368732.385062094 /a-dir/a-file - 35d02f81325122d77ec1d11baba655bc9bf8a891ab26119a41c50fa03ddfb408 security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
 /inline.txt 10 100644 1 1000 1000 0 1697019909.446146440 - some-text\n - security.selinux=unconfined_u:object_r:unlabeled_t:s0\x00
