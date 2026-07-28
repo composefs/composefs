@@ -63,7 +63,7 @@ static __attribute__((format(printf, 1, 2))) char *make_error(const char *fmt, .
 static size_t split_at(const char **start, size_t *length, char split_char,
 		       bool *partial)
 {
-	char *end = memchr(*start, split_char, *length);
+	const char *end = (const char*)memchr(*start, split_char, *length);
 	if (end == NULL) {
 		size_t part_len = *length;
 		*start = *start + *length;
@@ -426,7 +426,7 @@ static char *tree_from_dump_line(dump_info *info, const char *line,
 	 * We didn't document support for embedded NULs, and it only introduces
 	 * ambiguity in parsing, so let's just reject this early on.
 	 */
-	char *embedded_nul_offset = memchr(line, 0, line_len);
+	const char *embedded_nul_offset = (const char*)memchr(line, 0, line_len);
 	if (embedded_nul_offset != NULL) {
 		size_t off = embedded_nul_offset - line;
 		return make_error("Invalid embedded NUL character at position %lld",
