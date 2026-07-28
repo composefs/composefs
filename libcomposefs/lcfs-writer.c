@@ -1504,9 +1504,19 @@ bool lcfs_node_dirp(struct lcfs_node_s *node)
 	return (node->inode.st_mode & S_IFMT) == S_IFDIR;
 }
 
-struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
-			       char **failed_path_out)
+/* Shared state threaded through the recursive directory walk performed by
+ * lcfs_build_internal(). This is kept separate from the plain "buildflags"
+ * argument so that state which needs to persist across the *entire* walk
+ * (as opposed to a single directory level) has somewhere to live. */
+struct lcfs_build_ctx {
+	int buildflags;
+};
+
+static struct lcfs_node_s *lcfs_build_internal(int dirfd, const char *fname,
+					       struct lcfs_build_ctx *ctx,
+					       char **failed_path_out)
 {
+	int buildflags = ctx->buildflags;
 	struct lcfs_node_s *node = NULL;
 	struct dirent *de;
 	DIR *dir = NULL;
@@ -1572,8 +1582,8 @@ struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
 		}
 
 		if (de->d_type == DT_DIR) {
-			n = lcfs_build(dfd, de->d_name, buildflags,
-				       &free_failed_subpath);
+			n = lcfs_build_internal(dfd, de->d_name, ctx,
+						&free_failed_subpath);
 			if (n == NULL) {
 				failed_subpath = free_failed_subpath;
 				errsv = errno;
@@ -1615,6 +1625,16 @@ fail:
 		closedir(dir);
 	errno = errsv;
 	return NULL;
+}
+
+struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
+			       char **failed_path_out)
+{
+	struct lcfs_build_ctx ctx = {
+		.buildflags = buildflags,
+	};
+
+	return lcfs_build_internal(dirfd, fname, &ctx, failed_path_out);
 }
 
 size_t lcfs_node_get_n_xattr(struct lcfs_node_s *node)
