@@ -56,6 +56,50 @@ run_test() {
 
 run_test /usr/bin "--no-nlink"
 
+# Regression test for https://github.com/composefs/composefs/issues/444:
+# building directly from a directory (as opposed to --from-file) used to
+# silently drop hardlinks, giving every file nlink=1 even if two paths
+# were hardlinked to each other. This is opt-in via --hardlinks, so also
+# confirm the (unchanged) default behavior. Runs for both regular files and
+# symlinks, since any non-directory type can be hardlinked (`ln -P`), not
+# just regular files.
+test_hardlinks() {
+    local dir=hardlink-test
+    local create=$1
+
+    rm -rf "${dir}"
+    mkdir -p "${dir}/src"
+    "${create}" "${dir}/src/file1"
+    ln "${dir}/src/file1" "${dir}/src/file2"
+
+    # Default (no --hardlinks): every path gets its own independent inode
+    # with nlink=1, matching this tool's historical behavior.
+    mkcomposefs "${dir}/src" "${dir}/default.cfs"
+    default_dump=$(composefs-info dump "${dir}/default.cfs")
+    test "$(echo "${default_dump}" | awk '$1=="/file1"{print $4}')" = "1"
+    test "$(echo "${default_dump}" | awk '$1=="/file2"{print $4}')" = "1"
+    ! echo "${default_dump}" | grep -q '^/file[12] [0-9]* @'
+
+    # --hardlinks: file1 and file2 are the same inode (nlink=2), with
+    # exactly one of the two recorded as a hardlink (the "@" marker from
+    # composefs-dump(5)) pointing at the other.
+    mkcomposefs --hardlinks "${dir}/src" "${dir}/hardlinks.cfs"
+    hl_dump=$(composefs-info dump "${dir}/hardlinks.cfs")
+    test "$(echo "${hl_dump}" | awk '$1=="/file1"{print $4}')" = "2"
+    test "$(echo "${hl_dump}" | awk '$1=="/file2"{print $4}')" = "2"
+    test "$(echo "${hl_dump}" | grep -c '^/file[12] [0-9]* @')" = "1"
+
+    rm -rf "${dir}"
+}
+create_regular_file() {
+    dd if=/dev/urandom "of=$1" bs=1024 count=4 status=none
+}
+create_symlink() {
+    ln -s target-does-not-need-to-exist "$1"
+}
+test_hardlinks create_regular_file
+test_hardlinks create_symlink
+
 check_fsverity () {
     fsverity --version >/dev/null 2>&1 || return 1
     tmpfile=$(mktemp --tmpdir lcfs-fsverity.XXXXXX)

@@ -786,7 +786,7 @@ struct lcfs_node_s *lcfs_load_node_from_file(int dirfd, const char *fname,
 	if (buildflags & ~(LCFS_BUILD_SKIP_XATTRS | LCFS_BUILD_USE_EPOCH |
 			   LCFS_BUILD_SKIP_DEVICES | LCFS_BUILD_COMPUTE_DIGEST |
 			   LCFS_BUILD_NO_INLINE | LCFS_BUILD_USER_XATTRS |
-			   LCFS_BUILD_BY_DIGEST)) {
+			   LCFS_BUILD_BY_DIGEST | LCFS_BUILD_TRACK_HARDLINKS)) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1504,9 +1504,122 @@ bool lcfs_node_dirp(struct lcfs_node_s *node)
 	return (node->inode.st_mode & S_IFMT) == S_IFDIR;
 }
 
-struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
-			       char **failed_path_out)
+/* Key used to look up a previously seen inode by (device, inode number)
+ * while scanning a directory tree with LCFS_BUILD_TRACK_HARDLINKS. Only
+ * the dev/ino fields are significant for hashing/comparison; "node" is
+ * the payload (a borrowed pointer, owned by the tree being built). */
+struct lcfs_hardlink_entry {
+	dev_t dev;
+	ino_t ino;
+	struct lcfs_node_s *node;
+};
+
+static size_t hardlink_ht_hasher(const void *d, size_t n)
 {
+	const struct lcfs_hardlink_entry *v = d;
+	return ((size_t)v->dev * 31 + (size_t)v->ino) % n;
+}
+
+static bool hardlink_ht_comparator(const void *d1, const void *d2)
+{
+	const struct lcfs_hardlink_entry *v1 = d1;
+	const struct lcfs_hardlink_entry *v2 = d2;
+
+	return v1->dev == v2->dev && v1->ino == v2->ino;
+}
+
+/* Shared state threaded through the recursive directory walk performed by
+ * lcfs_build_internal(). This is kept separate from the plain "buildflags"
+ * argument so that state which needs to persist across the *entire* walk
+ * (as opposed to a single directory level) has somewhere to live. */
+struct lcfs_build_ctx {
+	int buildflags;
+	/* (dev,ino) -> struct lcfs_node_s*, or NULL if LCFS_BUILD_TRACK_HARDLINKS
+	 * was not requested. Every non-directory type is tracked here, since
+	 * regular files, symlinks, FIFOs, device nodes and sockets can all be
+	 * hardlinked; directories cannot. */
+	Hash_table *hardlink_map;
+};
+
+/* Load the node for dirfd/fname, detecting and wiring up hardlinks to a
+ * previously seen (device, inode) pair when hardlink tracking is enabled.
+ * On a repeat inode this avoids re-reading file content: it creates a
+ * lightweight placeholder node and turns it into a hardlink to the
+ * existing node with lcfs_node_make_hardlink(), mirroring how the
+ * --from-file dumpfile hardlink fixups work in tools/mkcomposefs.c. */
+static struct lcfs_node_s *lcfs_load_node_for_build(struct lcfs_build_ctx *ctx,
+						    int dirfd, const char *fname,
+						    int buildflags)
+{
+	struct stat sb;
+	struct lcfs_hardlink_entry key;
+	struct lcfs_hardlink_entry *existing;
+	struct lcfs_hardlink_entry *entry;
+	struct lcfs_node_s *node;
+
+	if (ctx->hardlink_map == NULL) {
+		return lcfs_load_node_from_file(dirfd, fname, buildflags);
+	}
+
+	if (fstatat(dirfd, fname, &sb, AT_SYMLINK_NOFOLLOW) < 0) {
+		return NULL;
+	}
+
+	/* Directories can never be hardlinked, and are handled by recursing
+	 * instead of via this function; every other type (regular files,
+	 * symlinks, FIFOs, device nodes, sockets) is a candidate.
+	 *
+	 * The one exception is a chardev with rdev=0: composefs represents
+	 * overlayfs whiteouts this way, and the EROFS writer rejects such an
+	 * inode outright if it ends up with nlink>1 (a whiteout marks the
+	 * absence of a file, so hardlinking two of them together is
+	 * semantically invalid). Leave those untracked so they keep today's
+	 * independent-inode-per-path behavior instead of failing the build. */
+	if (S_ISDIR(sb.st_mode) || (S_ISCHR(sb.st_mode) && sb.st_rdev == 0)) {
+		return lcfs_load_node_from_file(dirfd, fname, buildflags);
+	}
+
+	key = (struct lcfs_hardlink_entry){ .dev = sb.st_dev, .ino = sb.st_ino };
+	existing = hash_lookup(ctx->hardlink_map, &key);
+	if (existing != NULL) {
+		node = lcfs_node_new();
+		if (node == NULL) {
+			return NULL;
+		}
+		node->inode.st_mode = sb.st_mode;
+		lcfs_node_make_hardlink(node, existing->node);
+		return node;
+	}
+
+	node = lcfs_load_node_from_file(dirfd, fname, buildflags);
+	if (node == NULL) {
+		return NULL;
+	}
+
+	entry = malloc(sizeof(struct lcfs_hardlink_entry));
+	if (entry == NULL) {
+		lcfs_node_unref(node);
+		errno = ENOMEM;
+		return NULL;
+	}
+	entry->dev = sb.st_dev;
+	entry->ino = sb.st_ino;
+	entry->node = node;
+	if (hash_insert(ctx->hardlink_map, entry) == NULL) {
+		free(entry);
+		lcfs_node_unref(node);
+		errno = ENOMEM;
+		return NULL;
+	}
+
+	return node;
+}
+
+static struct lcfs_node_s *lcfs_build_internal(int dirfd, const char *fname,
+					       struct lcfs_build_ctx *ctx,
+					       char **failed_path_out)
+{
+	int buildflags = ctx->buildflags;
 	struct lcfs_node_s *node = NULL;
 	struct dirent *de;
 	DIR *dir = NULL;
@@ -1515,7 +1628,7 @@ struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
 	const char *failed_subpath = NULL;
 	int errsv;
 
-	node = lcfs_load_node_from_file(dirfd, fname, buildflags);
+	node = lcfs_load_node_for_build(ctx, dirfd, fname, buildflags);
 	if (node == NULL) {
 		errsv = errno;
 		goto fail;
@@ -1572,8 +1685,8 @@ struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
 		}
 
 		if (de->d_type == DT_DIR) {
-			n = lcfs_build(dfd, de->d_name, buildflags,
-				       &free_failed_subpath);
+			n = lcfs_build_internal(dfd, de->d_name, ctx,
+						&free_failed_subpath);
 			if (n == NULL) {
 				failed_subpath = free_failed_subpath;
 				errsv = errno;
@@ -1585,7 +1698,7 @@ struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
 					continue;
 			}
 
-			n = lcfs_load_node_from_file(dfd, de->d_name, buildflags);
+			n = lcfs_load_node_for_build(ctx, dfd, de->d_name, buildflags);
 			if (n == NULL) {
 				errsv = errno;
 				failed_subpath = de->d_name;
@@ -1615,6 +1728,35 @@ fail:
 		closedir(dir);
 	errno = errsv;
 	return NULL;
+}
+
+struct lcfs_node_s *lcfs_build(int dirfd, const char *fname, int buildflags,
+			       char **failed_path_out)
+{
+	struct lcfs_build_ctx ctx = {
+		.buildflags = buildflags,
+	};
+	struct lcfs_node_s *node;
+	int errsv;
+
+	if (buildflags & LCFS_BUILD_TRACK_HARDLINKS) {
+		ctx.hardlink_map = hash_initialize(0, NULL, hardlink_ht_hasher,
+						   hardlink_ht_comparator, free);
+		if (ctx.hardlink_map == NULL) {
+			errno = ENOMEM;
+			return NULL;
+		}
+	}
+
+	node = lcfs_build_internal(dirfd, fname, &ctx, failed_path_out);
+	errsv = errno;
+
+	if (ctx.hardlink_map != NULL) {
+		hash_free(ctx.hardlink_map);
+	}
+
+	errno = errsv;
+	return node;
 }
 
 size_t lcfs_node_get_n_xattr(struct lcfs_node_s *node)

@@ -58,6 +58,14 @@ will be a mountable composefs image.
 **\-\-user-xattrs**
 :   Only add xattrs with the "user." prefix to files in the image.
 
+**\-\-hardlinks**
+:   When building from a directory (i.e. without *--from-file*), detect
+    files that share the same device and inode number and store them
+    as hardlinks in the image, matching composefs-rs's *--hardlinks*
+    option. This is not the default: without this option every file
+    is treated as an independent inode with *nlink* of 1, which
+    matches the historical behavior of this tool.
+
 **\-\-from-file**
 :   The source is a file in the **composefs-dump(5)** format. If
     the specified file is "-", the data is read from stdin.
