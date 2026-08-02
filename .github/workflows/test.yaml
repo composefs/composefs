@@ -21,7 +21,7 @@ jobs:
     name: "clang-format"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: sudo ./hacking/installdeps.sh
       - name: Configure
@@ -34,7 +34,7 @@ jobs:
     name: "Build with ASAN"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: sudo ./hacking/installdeps.sh
       - name: Install fsck.erofs
@@ -50,12 +50,12 @@ jobs:
       - name: Capture build
         run: DESTDIR=$(pwd)/instroot meson install -C build && tar -C instroot -czf composefs.tar .
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: composefs.tar
           path: composefs.tar
       - name: Upload log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: testlog-asan.txt
@@ -66,7 +66,7 @@ jobs:
     name: "Build without ASAN"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: sudo ./hacking/installdeps.sh
       - name: Configure
@@ -76,12 +76,12 @@ jobs:
       - name: Capture build
         run: DESTDIR=$(pwd)/instroot meson install -C build && tar -C instroot -czf composefs.tar .
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: composefs-noasan.tar
           path: composefs.tar
       - name: Upload log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: testlog-noasan.txt
@@ -89,10 +89,10 @@ jobs:
   build-baseline:
     runs-on: ubuntu-latest
     name: "Build on Ubuntu Focal"
-    container: ubuntu:focal
+    container: ubuntu:resolute
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           apt-get update -y
@@ -107,7 +107,7 @@ jobs:
     name: "Build (24.04, clang)"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: sudo ./hacking/installdeps.sh
       - name: Configure
@@ -126,9 +126,9 @@ jobs:
       - name: Install dependencies
         run: sudo apt install libasan6 libubsan1 fsverity
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       - name: Download
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: composefs.tar
       - run: sudo tar -C / -xvf composefs.tar
@@ -140,7 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: sudo ./hacking/installdeps.sh
       - name: Configure
