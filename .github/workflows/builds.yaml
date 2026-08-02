@@ -24,7 +24,7 @@ jobs:
       - name: Bootstrap git
         run: if test -x /usr/bin/apt; then apt -y update && apt -y install git; else dnf -y install git; fi
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Fix git perms
         run: git config --global --add safe.directory $(pwd)
       - name: Install dependencies
@@ -43,12 +43,12 @@ jobs:
                --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime
                -czf composefs.tar.gz .
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: composefs-${{ matrix.basename }}.tar
           path: composefs.tar.gz
       - name: Upload log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: testlog-asan.txt
